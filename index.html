@@ -1272,6 +1272,38 @@
     ::-webkit-scrollbar-thumb:hover {
       background: #9CA3AF;
     }
+    /* ---- Mobile sizing hardening ---- */
+    html {
+      overflow-x: hidden;
+      width: 100%;
+    }
+    .message-bubble img,
+    .message-bubble pre,
+    .message-bubble table,
+    .message-bubble code {
+      max-width: 100%;
+      overflow-x: auto;
+    }
+    .message-bubble {
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    .modal-box {
+      max-width: min(360px, 92vw) !important;
+      width: 92vw;
+      max-height: 88vh;
+      overflow-y: auto;
+    }
+    #auth-gate .modal-box {
+      max-width: min(360px, 92vw);
+    }
+    @media (max-width: 480px) {
+      .brutal-btn {
+        font-size: 0.85rem;
+        padding: 8px 14px;
+      }
+      .hero-author { font-size: 1.1rem; }
+    }
   </style>
 </head>
 <body>
