@@ -1299,10 +1299,23 @@
     }
     @media (max-width: 480px) {
       .brutal-btn {
-        font-size: 0.85rem;
-        padding: 8px 14px;
+        font-size: 0.78rem;
+        padding: 7px 10px;
       }
       .hero-author { font-size: 1.1rem; }
+      .input-toolbar {
+        flex-wrap: nowrap;
+        gap: 6px;
+      }
+      .toolbar-left, .toolbar-right {
+        min-width: 0;
+        flex-shrink: 1;
+        gap: 6px;
+      }
+      .toolbar-left .brutal-btn span,
+      #send-btn span {
+        display: none; /* icon-only on very narrow screens so the row actually fits */
+      }
     }
   </style>
 </head>
