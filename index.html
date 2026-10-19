@@ -336,17 +336,17 @@
         height: calc(100dvh - 58px);
       }
       .chat-sidebar {
-        position: fixed;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        width: 84vw;
-        max-width: 320px;
-        z-index: 50;
+        position: fixed !important;
+        top: 0 !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        width: 84vw !important;
+        max-width: 320px !important;
+        z-index: 50 !important;
         box-shadow: 6px 0 0 rgba(0, 0, 0, 0.3);
       }
       .chat-sidebar.collapsed {
-        transform: translateX(-105%);
+        transform: translateX(-105%) !important;
       }
       .messages-viewport {
         padding: 16px 12px 145px 12px !important;
@@ -359,7 +359,7 @@
         font-size: 0.94rem !important;
       }
       .input-dock {
-        padding: 6px 10px 12px 10px !important;
+        padding: 6px 10px calc(12px + env(safe-area-inset-bottom, 0px)) 10px !important;
       }
       .prompt-starters {
         grid-template-columns: 1fr !important;
@@ -1333,6 +1333,11 @@
   <button class="brutal-btn pill" style="padding:5px 12px; font-size:0.78rem;" onclick="oriSignInGoogle()">Continue with Google</button>
 </div>
 
+<!-- Rate-limit-reached banner — shown when the per-user message cap is hit -->
+<div id="rate-limit-banner" style="display:none; align-items:center; justify-content:center; gap:10px; padding:8px 16px; background:#FCA5A5; border-bottom: 2px dashed #000; font-size:0.8rem; font-weight:700; text-align:center;">
+  <span id="rate-limit-text">You've hit your message limit.</span>
+</div>
+
   <!-- =========================================================================
        APP HEADER / NAVBAR (Ori Neo-Brutalist Nav)
        ========================================================================= -->
@@ -1463,42 +1468,8 @@
 
           <p class="hero-author">remembers, adapts, has <span>opinions</span></p>
 
-          <!-- Main CTA button -->
-          <button class="hero-cta-box" onclick="focusChatInput('Hello Ori! What can you help me with today?')">
-            <div class="hero-cta-main">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 5v14"></path>
-                <path d="m19 12-7 7-7-7"></path>
-              </svg>
-              <span>Start Chatting with Ori</span>
-            </div>
-            <div class="hero-cta-sub">
-              remembers you &bull; adapts to you &bull; has opinions
-            </div>
-          </button>
-
-          <!-- Prompt starters / suggested cards -->
-          <div class="prompt-starters">
-            <div class="prompt-chip" onclick="handleStarterClick('Help me plan my day.')">
-              <span class="prompt-chip-badge" style="background: var(--hl-green);">Plan</span>
-              <span class="prompt-chip-text">Help me plan my day</span>
-            </div>
-
-            <div class="prompt-chip" onclick="handleStarterClick('Explain the core design principles of Neo-Brutalism in modern web UI.')">
-              <span class="prompt-chip-badge" style="background: var(--hl-blue);">Design</span>
-              <span class="prompt-chip-text">Explain Neo-Brutalism and graph paper UI.</span>
-            </div>
-
-            <div class="prompt-chip" onclick="handleStarterClick('Brainstorm 5 innovative chatbot features we can build together.')">
-              <span class="prompt-chip-badge" style="background: var(--hl-yellow);">Brainstorm</span>
-              <span class="prompt-chip-text">Brainstorm 5 creative features for our chatbot.</span>
-            </div>
-
-            <div class="prompt-chip" onclick="handleStarterClick('What keyboard shortcuts and mobile gestures are supported in this UI?')">
-              <span class="prompt-chip-badge" style="background: var(--hl-pink);">Tips</span>
-              <span class="prompt-chip-text">What keyboard shortcuts & mobile features work?</span>
-            </div>
-          </div>
+          <!-- Prompt starters — repopulated with fresh text each new chat -->
+          <div class="prompt-starters" id="prompt-starters"></div>
         </div>
 
         <!-- Dynamic Message List Container -->
@@ -1747,7 +1718,45 @@
     // ORI BACKEND BRIDGE — talks to the Cloudflare Worker (key rotation,
     // rate limiting, memory, and the actual Gemini call all happen server-side)
     // =========================================================================
-    async function sendToBackend({ message, history, settings }) {
+    let rateLimitInterval = null;
+
+    function showRateLimitBanner(resetAtSeconds) {
+      const banner = document.getElementById('rate-limit-banner');
+      const text = document.getElementById('rate-limit-text');
+      const sendBtn = document.getElementById('send-btn');
+      const textarea = document.getElementById('user-textarea');
+      if (!banner || !text) return;
+
+      banner.style.display = 'flex';
+      if (sendBtn) sendBtn.disabled = true;
+      if (textarea) textarea.placeholder = "You're at your limit for now...";
+
+      if (rateLimitInterval) clearInterval(rateLimitInterval);
+
+      const update = () => {
+        const now = Math.floor(Date.now() / 1000);
+        const remaining = resetAtSeconds - now;
+        if (remaining <= 0) {
+          clearInterval(rateLimitInterval);
+          rateLimitInterval = null;
+          banner.style.display = 'none';
+          if (sendBtn) sendBtn.disabled = false;
+          if (textarea) textarea.placeholder = 'Ask Ori anything, brainstorm an idea, or paste code...';
+          return;
+        }
+        const h = Math.floor(remaining / 3600);
+        const m = Math.floor((remaining % 3600) / 60);
+        const resetTime = new Date(resetAtSeconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        text.textContent = h > 0
+          ? `⚠️ Limit reached — resets in ${h}h ${m}m (around ${resetTime})`
+          : `⚠️ Limit reached — resets in ${m}m (around ${resetTime})`;
+      };
+
+      update();
+      rateLimitInterval = setInterval(update, 30000); // refresh every 30s, no need for per-second ticking
+    }
+
+    async function sendToBackend({ message, history, attachments }) {
       if (!window.oriAuthReady || !window.oriUid) {
         return "⚠️ Still signing you in — try sending that again in a second.";
       }
@@ -1762,12 +1771,17 @@
             chatId: STATE.currentSessionId || "pending",
             message,
             thinking: false,
+            attachments: (attachments || []).map(a => ({
+              mimeType: a.type,
+              data: a.base64,
+            })),
           }),
         });
 
         if (res.status === 429) {
           const data = await res.json();
-          return `⚠️ **${data.message}**`;
+          showRateLimitBanner(data.resetAt);
+          return null; // the banner communicates this — no need for a chat bubble too
         }
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -1788,6 +1802,7 @@
     window.addEventListener('DOMContentLoaded', () => {
       setupTextareaAutoResize();
       setupSpeechRecognition();
+      renderPromptStarters();
 
       // Auto-focus input on non-touch devices
       if (window.innerWidth > 820) {
@@ -1799,6 +1814,52 @@
     document.addEventListener('ori-auth-ready', () => {
       loadSessionsFromServer();
     });
+
+    // =========================================================================
+    // PROMPT STARTERS — a small pool per category, one picked at random each
+    // time the landing screen shows, so it doesn't look identical every time.
+    // =========================================================================
+    const STARTER_POOL = {
+      Plan: [
+        { text: 'Help me plan my day', prompt: 'Help me plan my day.' },
+        { text: 'Help me plan my week', prompt: 'Help me plan my week.' },
+        { text: 'Break a goal into steps', prompt: 'Help me break a goal down into concrete steps.' },
+      ],
+      Design: [
+        { text: 'Explain Neo-Brutalism and graph paper UI', prompt: 'Explain the core design principles of Neo-Brutalism in modern web UI.' },
+        { text: 'Critique a UI idea with me', prompt: 'I want to talk through a UI idea — ask me about it.' },
+        { text: 'Pick colors for a project', prompt: 'Help me pick a color palette for a project.' },
+      ],
+      Brainstorm: [
+        { text: 'Brainstorm 5 creative features for our chatbot', prompt: 'Brainstorm 5 innovative chatbot features we can build together.' },
+        { text: 'Give me a fresh take on an old idea', prompt: 'Give me a fresh, unconventional take on an idea I have.' },
+        { text: 'Compare two options for me', prompt: 'Help me compare two options I am weighing.' },
+      ],
+      Tips: [
+        { text: 'What keyboard shortcuts & mobile features work?', prompt: 'What keyboard shortcuts and mobile gestures are supported in this UI?' },
+        { text: 'What can you actually do?', prompt: 'What kinds of things are you actually good at helping with?' },
+        { text: 'Just talk to me, I want to think out loud', prompt: 'Just talk to me, I want to think out loud about something.' },
+      ],
+    };
+    const CATEGORY_COLORS = { Plan: 'var(--hl-green)', Design: 'var(--hl-blue)', Brainstorm: 'var(--hl-yellow)', Tips: 'var(--hl-pink)' };
+
+    function renderPromptStarters() {
+      const container = document.getElementById('prompt-starters');
+      if (!container) return;
+      container.innerHTML = '';
+      Object.keys(STARTER_POOL).forEach((category) => {
+        const options = STARTER_POOL[category];
+        const pick = options[Math.floor(Math.random() * options.length)];
+        const chip = document.createElement('div');
+        chip.className = 'prompt-chip';
+        chip.onclick = () => handleStarterClick(pick.prompt);
+        chip.innerHTML = `
+          <span class="prompt-chip-badge" style="background: ${CATEGORY_COLORS[category]};">${category}</span>
+          <span class="prompt-chip-text">${escapeHtml(pick.text)}</span>
+        `;
+        container.appendChild(chip);
+      });
+    }
 
     // =========================================================================
     // CHAT SESSION MANAGEMENT — backed by the Worker/D1, not localStorage.
@@ -1839,6 +1900,7 @@
       STATE.attachments = [];
       elements.textarea.value = '';
       elements.textarea.style.height = 'auto';
+      renderPromptStarters();
       renderHistorySidebar();
       closeSidebarOnMobile();
       elements.textarea.focus();
@@ -2053,9 +2115,16 @@
         const responseText = await sendToBackend({
           message: text,
           history: activeSession.messages.slice(0, -1),
+          attachments: sentAttachments,
         });
 
         elements.typingIndicator.style.display = 'none';
+
+        if (responseText === null) {
+          // rate-limited — the banner already shows this, don't also add a bubble,
+          // and don't persist a fake assistant turn into this chat's history.
+          return;
+        }
 
         appendMessageBubble('bot', responseText, timeStr, true);
 
@@ -2209,33 +2278,95 @@
       btn.disabled = true;
     }
 
+    const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024; // 15MB per file — stays safely under Gemini's inline-data limit
+
     function handleFileUpload(e) {
       const files = Array.from(e.target.files);
-      if (!files.length) return;
-
-      files.forEach(file => {
-        STATE.attachments.push({
-          name: file.name,
-          size: file.size,
-          type: file.type
-        });
-
-        const chip = document.createElement('div');
-        chip.className = 'attachment-chip';
-        chip.innerHTML = `
-          <span>📎 ${escapeHtml(file.name)}</span>
-          <span class="attachment-chip-remove" onclick="removeAttachment('${escapeHtml(file.name)}', this)">&times;</span>
-        `;
-        elements.attachmentsTray.appendChild(chip);
-      });
-
+      handleIncomingFiles(files);
       e.target.value = '';
+    }
+
+    function handleIncomingFiles(files) {
+      if (window.oriIsGuest) {
+        alert("File uploads need a Google sign-in — guest mode is text-only for now.");
+        return;
+      }
+      files.forEach(file => {
+        if (file.size > MAX_ATTACHMENT_BYTES) {
+          alert(`"${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). 15MB max per file.`);
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          // reader.result is "data:<mime>;base64,<data>" — split off just the base64 part
+          const base64 = reader.result.split(',')[1];
+          const attachment = {
+            name: file.name,
+            size: file.size,
+            type: file.type || 'application/octet-stream',
+            base64,
+          };
+          STATE.attachments.push(attachment);
+          renderAttachmentChip(attachment);
+        };
+        reader.onerror = () => {
+          alert(`Couldn't read "${file.name}" — try again.`);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function renderAttachmentChip(attachment) {
+      const chip = document.createElement('div');
+      chip.className = 'attachment-chip';
+
+      const isImage = attachment.type.startsWith('image/');
+      const preview = isImage
+        ? `<img src="data:${attachment.type};base64,${attachment.base64}" style="width:28px;height:28px;object-fit:cover;border-radius:4px;border:2px solid #000;">`
+        : `<span>${attachment.type.startsWith('video/') ? '🎬' : '📎'}</span>`;
+
+      chip.innerHTML = `
+        ${preview}
+        <span>${escapeHtml(attachment.name)}</span>
+        <span class="attachment-chip-remove" onclick="removeAttachment('${escapeHtml(attachment.name)}', this)">&times;</span>
+      `;
+      elements.attachmentsTray.appendChild(chip);
     }
 
     function removeAttachment(fileName, el) {
       STATE.attachments = STATE.attachments.filter(a => a.name !== fileName);
       el.closest('.attachment-chip').remove();
     }
+
+    // ---- Paste support: Ctrl+V an image (or any file) straight into the input ----
+    document.addEventListener('paste', (e) => {
+      if (!e.clipboardData || !e.clipboardData.items) return;
+      const files = [];
+      for (const item of e.clipboardData.items) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length) {
+        handleIncomingFiles(files);
+      }
+    });
+
+    // ---- Drag & drop onto the input area ----
+    document.addEventListener('DOMContentLoaded', () => {
+      const dropZone = document.querySelector('.input-main-box');
+      if (!dropZone) return;
+      ['dragover', 'drop'].forEach(evt => {
+        dropZone.addEventListener(evt, (e) => e.preventDefault());
+      });
+      dropZone.addEventListener('drop', (e) => {
+        if (e.dataTransfer?.files?.length) {
+          handleIncomingFiles(Array.from(e.dataTransfer.files));
+        }
+      });
+    });
 
     // Voice recognition helper (Web Speech API)
     function setupSpeechRecognition() {
