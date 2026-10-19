@@ -1576,7 +1576,7 @@
           <button class="brutal-btn box" style="width:100%;" onclick="exportCurrentChat()">Export this chat</button>
         </div>
         <div class="form-group">
-          <button class="brutal-btn box" style="width:100%;" onclick="alert('Add your privacy/terms page link here')">Privacy &amp; terms</button>
+          <button class="brutal-btn box" style="width:100%;" onclick="openPrivacyModal()">Privacy &amp; terms</button>
         </div>
         <div class="form-group">
           <button class="brutal-btn box" style="width:100%; background: var(--hl-red);" onclick="oriDeleteAccount()">Delete my account</button>
@@ -1588,6 +1588,42 @@
 
       <div class="modal-footer">
         <button class="brutal-btn pill" onclick="closeSettingsModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Privacy & Terms modal -->
+  <div class="modal-overlay" id="privacy-modal" onclick="handleModalBackdropClick(event)">
+    <div class="modal-box" style="max-width: 520px;">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span>📄</span> Privacy &amp; Terms
+        </div>
+        <button class="modal-close-btn" onclick="closePrivacyModal()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="max-height: 60vh; overflow-y: auto; font-size: 0.85rem; line-height: 1.5; text-align: left;">
+        <p><strong>Ori is a small, independent project</strong> — not a company product, built and run by one person for a small group of people. This isn't a law-firm-written policy, just a plain explanation of what actually happens.</p>
+
+        <p><strong>What's stored.</strong> Your messages, chat titles, and (if you're signed in) your name/email from Google are stored in our database to make chat history, memory, and the app itself work. Guest sessions are tied to a temporary anonymous ID instead of an account.</p>
+
+        <p><strong>Who else sees your messages.</strong> To generate replies, your messages are sent to third-party AI providers — Google (Gemini) and Groq. Depending on which free-tier plan is active, these providers may process or, in some cases, use free-tier data to improve their own models — this is standard for free-tier AI APIs generally, not something unique to Ori. Please don't share anything here you wouldn't want a third party to possibly see — passwords, financial details, medical records, or anything similarly sensitive.</p>
+
+        <p><strong>Uploaded files.</strong> Images, videos, or files you attach are sent to whichever AI provider is handling that message (always Gemini for files, since Groq's model is text-only) so it can understand them. The raw file isn't permanently stored in our database — only the text of the conversation is kept.</p>
+
+        <p><strong>What Ori is not.</strong> Ori isn't a medical, legal, or financial professional, and its advice shouldn't replace one. Please use your own judgment, especially for anything serious.</p>
+
+        <p><strong>Your control.</strong> You can export any chat as a text file, delete individual chats, or delete your entire account (which removes your messages, memory, and usage data) at any time from Settings.</p>
+
+        <p><strong>Who can use this.</strong> Ori is meant for a small, known group of people, not the general public. Don't use it for anything illegal, harmful, or abusive — accounts can be removed for misuse.</p>
+
+        <p><strong>No ads, no selling data.</strong> Ori doesn't run ads and doesn't sell your data to anyone.</p>
+
+        <p><strong>Changes.</strong> Since this is a small, evolving project, this page may change as features change. Nothing here is a permanent guarantee — if something about how your data is handled matters a lot to you, ask directly rather than assuming.</p>
+      </div>
+
+      <div class="modal-footer">
+        <button class="brutal-btn pill" onclick="closePrivacyModal()">Close</button>
       </div>
     </div>
   </div>
@@ -2454,9 +2490,18 @@
       elements.settingsModal.classList.remove('open');
     }
 
+    function openPrivacyModal() {
+      document.getElementById('privacy-modal').classList.add('open');
+    }
+
+    function closePrivacyModal() {
+      document.getElementById('privacy-modal').classList.remove('open');
+    }
+
     function handleModalBackdropClick(e) {
-      if (e.target === elements.settingsModal) {
-        closeSettingsModal();
+      // works for any .modal-overlay — closes whichever one the backdrop click was on
+      if (e.target.classList && e.target.classList.contains('modal-overlay')) {
+        e.target.classList.remove('open');
       }
     }
   </script>
