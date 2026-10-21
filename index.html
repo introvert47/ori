@@ -1325,7 +1325,13 @@
      AUTH GATE — shown before any session exists. Nothing happens until
      the user picks Google or Guest.
      ========================================================================= -->
-<div class="modal-overlay" id="auth-gate" style="display:flex; opacity:1; pointer-events:auto; z-index:300;">
+<!-- Shown by default while Firebase checks for an existing session — prevents
+     the sign-in screen from flashing for already-logged-in users. -->
+<div id="auth-loading" style="position:fixed; inset:0; z-index:300; display:flex; align-items:center; justify-content:center; background:#FAF8F2;">
+  <h1 style="font-family: var(--font-marker); font-size: 2.4rem; opacity:0.5;">Ori</h1>
+</div>
+
+<div class="modal-overlay" id="auth-gate" style="display:none; z-index:300;">
   <div class="modal-box" style="max-width: 360px; text-align:center;">
     <div class="modal-body" style="padding-top: 28px;">
       <h1 style="font-family: var(--font-marker); font-size: 2.4rem; margin-bottom: 4px;">Ori</h1>
@@ -1336,6 +1342,21 @@
       <button class="brutal-btn box" style="width:100%; padding:14px;" onclick="oriSignInGuest()">
         Continue as Guest
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- Required "what should we call you" step, shown once per account before chat unlocks -->
+<div class="modal-overlay" id="name-gate" style="display:none; z-index:290;">
+  <div class="modal-box" style="max-width: 360px; text-align:center;">
+    <div class="modal-body" style="padding-top: 28px;">
+      <h1 style="font-size: 1.4rem; margin-bottom: 6px;">What should we call you?</h1>
+      <p style="color:#555; margin-bottom: 16px; font-size:0.85rem;">Ori will use this to talk to you — letters, numbers, or spaces, 1-30 characters.</p>
+      <input id="name-gate-input" type="text" maxlength="30" placeholder="Your name"
+             style="width:100%; padding:12px; border:3px solid #000; border-radius:10px; font-family:inherit; font-size:1rem; margin-bottom:10px; text-align:center;"
+             onkeydown="if(event.key==='Enter') submitDisplayName()">
+      <p id="name-gate-error" style="color:#B91C1C; font-size:0.78rem; min-height:16px; margin-bottom:8px;"></p>
+      <button class="brutal-btn box primary" style="width:100%; padding:12px;" onclick="submitDisplayName()">Continue</button>
     </div>
   </div>
 </div>
@@ -1676,19 +1697,86 @@
     window.oriIsGuest = true;
     window.oriAuthReady = false;
 
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        window.oriUid = user.uid;
-        window.oriIsGuest = user.isAnonymous;
-        window.oriAuthReady = true;
-        document.getElementById("auth-gate").style.display = "none";
-        document.getElementById("guest-banner").style.display = user.isAnonymous ? "flex" : "none";
-        const modeLabel = document.getElementById("current-mode-label");
-        if (modeLabel) modeLabel.textContent = user.isAnonymous ? "Guest" : (user.displayName || "Signed in");
-        document.dispatchEvent(new CustomEvent("ori-auth-ready"));
+    onAuthStateChanged(auth, async (user) => {
+      // First resolution (restored session or none) always hides the loading
+      // splash — this is what stops the sign-in screen flashing for people
+      // who are already logged in.
+      document.getElementById("auth-loading").style.display = "none";
+
+      if (!user) {
+        document.getElementById("auth-gate").style.display = "flex";
+        return;
       }
-      // no user yet -> auth-gate stays up, nothing auto-happens
+
+      window.oriUid = user.uid;
+      window.oriIsGuest = user.isAnonymous;
+      window.oriAuthReady = true;
+      document.getElementById("auth-gate").style.display = "none";
+      document.getElementById("guest-banner").style.display = user.isAnonymous ? "flex" : "none";
+
+      // Required name step — check if this uid already has a display name.
+      let displayName = null;
+      try {
+        const res = await fetch(`${window.ORI_WORKER_URL}/profile?uid=${user.uid}`);
+        const data = await res.json();
+        displayName = data.displayName;
+      } catch (err) {
+        console.error("profile check failed", err);
+      }
+
+      if (!displayName) {
+        document.getElementById("name-gate").style.display = "flex";
+        return; // chat stays locked until a name is submitted
+      }
+
+      finishAuthSetup(displayName);
     });
+
+    function finishAuthSetup(displayName) {
+      const modeLabel = document.getElementById("current-mode-label");
+      if (modeLabel) modeLabel.textContent = window.oriIsGuest ? "Guest" : (displayName || "Signed in");
+      document.dispatchEvent(new CustomEvent("ori-auth-ready"));
+
+      // Show Privacy & Terms exactly once per browser, after the name step,
+      // with no explicit agreement required — just a one-time notice.
+      if (!localStorage.getItem("ori_seen_terms")) {
+        localStorage.setItem("ori_seen_terms", "1");
+        setTimeout(() => {
+          if (typeof openPrivacyModal === "function") openPrivacyModal();
+        }, 400);
+      }
+    }
+
+    window.submitDisplayName = async () => {
+      const input = document.getElementById("name-gate-input");
+      const errorEl = document.getElementById("name-gate-error");
+      const raw = input.value;
+
+      // Client-side check first (fast feedback) — the Worker re-validates
+      // this for real, since client-side checks alone can always be bypassed.
+      const clean = (raw || "").trim().replace(/[\x00-\x1F\x7F<>`$]/g, "");
+      if (clean.length < 1 || clean.length > 30) {
+        errorEl.textContent = "Enter 1-30 characters — letters, numbers, or spaces.";
+        return;
+      }
+
+      try {
+        const res = await fetch(`${window.ORI_WORKER_URL}/profile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uid: window.oriUid, displayName: clean, isGuest: window.oriIsGuest }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errorEl.textContent = data.message || "That name wasn't accepted — try something simpler.";
+          return;
+        }
+        document.getElementById("name-gate").style.display = "none";
+        finishAuthSetup(data.displayName);
+      } catch (err) {
+        errorEl.textContent = "Couldn't save that — check your connection and try again.";
+      }
+    };
 
     window.oriSignInGuest = async () => {
       try {
